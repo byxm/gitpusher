@@ -18,8 +18,9 @@
   "engines": {
     "node": ">=16.0.0"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "Simone",
+  "repository": "https://github.com/byxm/gitpusher",
+  "license": "MIT",
   "dependencies": {
     "chalk": "5.3.0",
     "ora": "8.0.1",
