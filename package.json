@@ -1,5 +1,5 @@
 {
-  "name": "@simone/gitpusher",
+  "name": "git-sync-commit",
   "version": "1.0.0",
   "description": "一个简单的 Git 提交、合并、推送工具",
   "private": false,
