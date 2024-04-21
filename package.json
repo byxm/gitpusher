@@ -18,6 +18,15 @@
   "engines": {
     "node": ">=16.0.0"
   },
+  "files": [
+    "index.mjs",
+    "util.mjs",
+    "error.mjs"
+  ],
+  "homepage": "https://github.com/byxm/gitpusher#readme",
+  "bugs": {
+    "url": "https://github.com/byxm/gitpusher/issues"
+  },
   "author": "Simone",
   "repository": "https://github.com/byxm/gitpusher",
   "license": "MIT",
