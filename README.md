@@ -1,17 +1,17 @@
-# gitpusher
+# git-sync-commit
 
-**gitpusher** 是一个基于 Node.js 开发的命令行工具，旨在简化日常的 Git 提交、合并和推送操作。
+**git-sync-commit** 是一个基于 Node.js 开发的命令行工具，旨在简化日常的 Git 提交、合并和推送操作。
 
 ## 安装
 
 ```bash
-npm install -g @simone/gitpusher
+npm install -g git-sync-commit
 
 ```
 
 ## 使用
 
-启动 gitpusher:
+启动 git-sync-commit:
 
 ```bash
 gs start
