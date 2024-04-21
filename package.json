@@ -1,0 +1,28 @@
+{
+  "name": "@simone/gitpush",
+  "version": "1.0.0",
+  "description": "一个简单的 Git 提交、合并、推送工具",
+  "type": "module",
+  "keywords": [
+    "git",
+    "commit",
+    "push"
+  ],
+  "main": "index.mjs",
+  "scripts": {
+    "test": "gitpush"
+  },
+  "bin": {
+    "gs": "index.mjs"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "5.3.0",
+    "ora": "8.0.1",
+    "yargs": "17.7.2"
+  }
+}
