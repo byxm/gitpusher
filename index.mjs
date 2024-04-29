@@ -204,7 +204,6 @@ async function createMergeRequest(commitMessage) {
       const projectId = getProjectIdFromGitRemote();
       const accessToken = await getGitlabToken(storage);
       const gitUrl = getGitUrl();
-      console.log('gitURl=========', gitUrl);
       const { data } = await axios.post(
         `https://${gitUrl}/api/v4/projects/${projectId}/merge_requests`,
         {
