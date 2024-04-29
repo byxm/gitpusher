@@ -1,4 +1,5 @@
 import { execSync } from "child_process";
+import inquirer from "inquirer";
 import { readInput } from "./util.mjs";
 import chalk from "chalk";
 
@@ -12,13 +13,20 @@ class GitError extends Error {
   // 通用错误处理逻辑
   async handleGitError(errorType, errorMessage, branch) {
     console.error(chalk.red(`${errorType}错误:`), errorMessage);
-    
-    const answer = await readInput(chalk.yellow("是否重试? (y/n)"));
-    if (answer.toLowerCase() === "y") {
-      return true; // 重试  
+
+    const { answer } = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "answer",
+        message: "是否重试?",
+        default: false,
+      },
+    ]);
+    if (answer) {
+      return true; // 重试
     } else {
       console.error(chalk.red("已终止操作,请手动处理错误"));
-      process.exit(1); 
+      process.exit(1);
     }
   }
 
@@ -74,8 +82,15 @@ class GitError extends Error {
       console.log(chalk.green("强制推送成功"));
     } catch (error) {
       console.error(chalk.red("强制推送失败:"), error.message);
-      const retry = await readInput(chalk.cyan("是否重试? (y/n)"));
-      if (retry.toLowerCase() === "y") {
+      const { retry } = await inquirer.prompt([
+        {
+          type: "confirm",
+          name: "retry",
+          message: "是否重试?",
+          default: false,
+        },
+      ]);
+      if (retry) {
         this.handlePushFast(branch); // 重试
       } else {
         throw error; // 不重试,抛出错误

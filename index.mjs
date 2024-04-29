@@ -2,12 +2,23 @@
 import yargs from "yargs/yargs";
 import { hideBin } from "yargs/helpers";
 import { execSync } from "child_process";
+import inquirer from "inquirer";
+import axios from "axios";
 import ora from "ora";
 import chalk from "chalk";
-import { readInput, getCurrentBranch, getLocalBranches } from "./util.mjs";
+import storage from "node-persist";
+import os from "os";
+import path from "path";
+import {
+  readInput,
+  getCurrentBranch,
+  getLocalBranches,
+  getProjectIdFromGitRemote,
+  getGitlabToken,
+  needContinueModify,
+  getGitUrl
+} from "./util.mjs";
 import GitError from "./error.mjs";
-
-
 
 // 生成提交commit
 function generateCommit(message) {
@@ -72,7 +83,7 @@ async function mergeBranch(branch) {
   }
 }
 
-async function selectBranch(branches, excludeBranch, info = '合并的') {
+async function selectBranch(branches, excludeBranch, info = "合并的") {
   const selectableBranches = branches.filter(
     (branch) => branch !== excludeBranch
   );
@@ -97,24 +108,36 @@ function pushBranch(branch) {
 }
 
 async function syncCommit(currentBranch, commitId) {
-  const shouldSync = await readInput("是否将此次提交同步到其他分支? (yes/no)");
-  if (shouldSync.toLowerCase() === "yes") {
-    const targetBranch = await selectBranch(getLocalBranches(), currentBranch, '切换的');
-    await checkoutBranch(targetBranch);
-    await pullCurrentBranch(targetBranch);
+  const targetBranch = await selectBranch(
+    getLocalBranches(),
+    currentBranch,
+    "切换的"
+  );
+  await checkoutBranch(targetBranch);
+  // await pullCurrentBranch(targetBranch); // 暂时不需要拉取切换分支的代码，一般作为源合并分支，只需要合并target分支的代码即可
 
-    const shouldMerge = await readInput("是否需要合并其他分支代码? (yes/no)");
-    if (shouldMerge.toLowerCase() === "yes") {
-      const mergeBranch = await selectBranch(getLocalBranches(), targetBranch, '合并的');
-      await mergeOtherBranch(mergeBranch, targetBranch);
-    }
-
-    await cherryPickCommit(commitId, targetBranch);
-    await pushBranch(targetBranch);
-    console.log(
-      chalk.green(`已将 commit ${commitId} 同步到 ${targetBranch} 分支`)
+  const { shouldMerge } = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "shouldMerge",
+      message: "是否需要合并其他分支代码?",
+      default: false,
+    },
+  ]);
+  if (shouldMerge) {
+    const willMergetBranch = await selectBranch(
+      getLocalBranches(),
+      targetBranch,
+      "合并的"
     );
+    await mergeBranch(willMergetBranch);
   }
+
+  await cherryPickCommit(commitId, targetBranch);
+  await pushBranch(targetBranch);
+  console.log(
+    chalk.green(`已将 commit ${commitId} 同步到 ${targetBranch} 分支`)
+  );
 }
 
 // 切换到指定分支
@@ -142,24 +165,6 @@ async function pullCurrentBranch(branch) {
   }
 }
 
-async function mergeOtherBranch(mergeBranch, targetBranch) {
-  try {
-    execSync(`git merge ${mergeBranch}`);
-    console.log(chalk.green(`已合并 ${mergeBranch} 到 ${targetBranch}`));
-  } catch (error) {
-    if (
-      error.message.includes("CONFLICT") ||
-      error.message.includes("conflicts")
-    ) {
-      console.error(chalk.red("合并冲突:"), error.message);
-      const gitError = new GitError("MergeConflict", error.message);
-      await gitError.handle(targetBranch);
-    } else {
-      throw error;
-    }
-  }
-}
-
 async function cherryPickCommit(commitId, targetBranch) {
   try {
     execSync(`git cherry-pick ${commitId}`);
@@ -177,12 +182,61 @@ async function cherryPickCommit(commitId, targetBranch) {
   }
 }
 
+async function createMergeRequest(commitMessage) {
+  try {
+    const localBranches = getLocalBranches();
+    const currentBranch = getCurrentBranch();
+    const shouldCreateMR = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "createMR",
+        message: "是否需要创建 Merge Request?",
+        default: false,
+      },
+    ]);
+    if (shouldCreateMR.createMR) {
+      // 创建 Merge Request 的逻辑
+      const targetBranch = await selectBranch(
+        localBranches,
+        currentBranch,
+        "合并到"
+      );
+      const projectId = getProjectIdFromGitRemote();
+      const accessToken = await getGitlabToken(storage);
+      const gitUrl = getGitUrl();
+      console.log('gitURl=========', gitUrl);
+      const { data } = await axios.post(
+        `https://${gitUrl}/api/v4/projects/${projectId}/merge_requests`,
+        {
+          source_branch: currentBranch,
+          target_branch: targetBranch,
+          title: commitMessage,
+        },
+        {
+          headers: {
+            "PRIVATE-TOKEN": accessToken,
+          },
+        }
+      );
+      // "N9UmVMEeCVyqUXwusNvn"
+      console.log(
+        chalk.green(`创建 Merge Request 成功,地址为: ${data.web_url}`)
+      );
+    }
+  } catch (error) {
+    console.error(chalk.red(`创建Merge Request失败: ${error.message}`));
+    throw error;
+  }
+}
+
 yargs(hideBin(process.argv))
   .command(
     "start",
     "Start a gitpush process",
     () => {},
     async () => {
+      const gitpusherDir = path.join(os.homedir(), ".gitpusher");
+      await storage.init({ dir: gitpusherDir });
       const currentBranch = getCurrentBranch();
 
       const commitSpinner = ora("开始生成commit").start();
@@ -231,33 +285,72 @@ yargs(hideBin(process.argv))
           await gitError.handle(currentBranch);
           pushSpinner.stop();
         } else {
-          console.error(chalk.red(`推送代码失败到${currentBranch}失败`));
+          console.error(
+            chalk.red(`推送代码到${currentBranch}失败: ${error.message}`)
+          );
           pushSpinner.fail("推送失败");
           throw error;
         }
       }
+      await createMergeRequest(commitMessage);
+
       // 同步提交到其他分支
       const commitId = execSync("git rev-parse HEAD").toString().trim();
-      await syncCommit(currentBranch, commitId);
-      const currentCheckoutBranch = getCurrentBranch();
-      // commit同步完成后提交代码
-      const syncPushpushSpinner = ora(`推送代码到${currentCheckoutBranch}`).start();
-      try {
-        pushBranch(currentCheckoutBranch);
-        syncPushpushSpinner.succeed("推送完成");
-        syncPushpushSpinner.stop();
-      } catch (error) {
-        if (
-          error.message.includes("rejected") &&
-          error.message.includes("non-fast-forward")
-        ) {
-          const gitError = new GitError("PushFast", error.message);
-          await gitError.handle(currentCheckoutBranch);
-          syncPushpushSpinner.stop();
+      let syncCount = 0;
+      while (true) {
+        const { shouldSync } = await inquirer.prompt([
+          {
+            type: "confirm",
+            name: "shouldSync",
+            message:
+              syncCount === 0
+                ? "是否将此次提交同步到其他分支?"
+                : "是否继续同步此次提交到其他分支?",
+            default: false,
+          },
+        ]);
+        if (shouldSync) {
+          await syncCommit(currentBranch, commitId);
+          const { needModify } = await inquirer.prompt([
+            {
+              type: "confirm",
+              name: "needModify",
+              message: "是否需要继续修改其他文件?",
+              default: false,
+            },
+          ]);
+          if (needModify) {
+            await needContinueModify();
+          }
+          const currentCheckoutBranch = getCurrentBranch();
+          // commit同步完成后提交代码
+          const syncPushpushSpinner = ora(
+            `推送代码到${currentCheckoutBranch}`
+          ).start();
+          try {
+            pushBranch(currentCheckoutBranch);
+            syncPushpushSpinner.succeed("推送完成");
+            syncPushpushSpinner.stop();
+          } catch (error) {
+            if (
+              error.message.includes("rejected") &&
+              error.message.includes("non-fast-forward")
+            ) {
+              const gitError = new GitError("PushFast", error.message);
+              await gitError.handle(currentCheckoutBranch);
+              syncPushpushSpinner.stop();
+            } else {
+              console.error(
+                chalk.red(`推送代码失败到${currentCheckoutBranch}失败`)
+              );
+              syncPushpushSpinner.fail("推送失败");
+              throw error;
+            }
+          }
+          syncCount++;
+          await createMergeRequest(commitMessage);
         } else {
-          console.error(chalk.red(`推送代码失败到${currentCheckoutBranch}失败`));
-          syncPushpushSpinner.fail("推送失败");
-          throw error;
+          break;
         }
       }
     }
