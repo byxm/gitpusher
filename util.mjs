@@ -52,9 +52,7 @@ function getGitUrl() {
   if (match && match[0]) {
     return match[0];
   } else {
-    throw new Error(
-      "无法从远程仓库 URL 提取 git url，请手动创建merge request"
-    );
+    throw new Error("无法从远程仓库 URL 提取 git url，请手动创建merge request");
   }
 }
 
@@ -92,29 +90,59 @@ async function getGitlabToken(storage) {
 async function needContinueModify() {
   console.log(
     chalk.yellow(
-      "请继续修改你需要修改的文件，修改完毕后输入 continue 继续，若要终止修改请输入 abort 取消修改"
+      "测试请继续修改你需要修改的文件，修改完毕后输入 continue 继续，若要终止修改请输入 abort 取消修改"
     )
   );
   while (true) {
     const input = await readInput("gitpush> ");
     if (input === "continue") {
       try {
+        process.env.GIT_EDITOR = "true"; // amend合并关闭编辑器
         execSync("git add .");
         execSync("git commit --amend");
-        console.log(chalk.green('合并提交成功'))
+        console.log(chalk.green("合并提交成功"));
+        process.env.GIT_EDITOR = "false"; // amend合并关闭编辑器
         break;
       } catch (error) {
-        console.error(chalk.red('合并代码提交出错：', error.message))
+        console.error(chalk.red("合并代码提交出错：", error.message));
         throw error;
       }
     }
-    if(input === 'abort') {
-      console.log(chalk.yellow('取消本次代码修改'))
+    if (input === "abort") {
+      console.log(chalk.yellow("取消本次代码修改"));
       execSync("git checkout -- .");
       break;
     }
   }
 }
+
+function openUrl(url) {
+  let command;
+
+  // 根据平台选择对应的命令
+  switch (process.platform) {
+    case "darwin": // MacOS
+      command = `open "${url}"`;
+      break;
+    case "win32": // Windows
+      command = `start "${url}"`;
+      break;
+    case "linux": // Linux
+      command = `xdg-open "${url}"`;
+      break;
+    default:
+      console.log(`Unsupported platform: ${process.platform}`);
+      return;
+  }
+
+  try {
+    // 执行命令，使用系统默认浏览器打开 URL
+    execSync(command);
+  } catch (err) {
+    console.error(`Error opening URL: ${err}`);
+  }
+}
+
 export {
   readInput,
   getCurrentBranch,
@@ -122,5 +150,6 @@ export {
   getProjectIdFromGitRemote,
   getGitlabToken,
   needContinueModify,
-  getGitUrl
+  getGitUrl,
+  openUrl,
 };

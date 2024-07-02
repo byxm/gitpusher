@@ -16,7 +16,8 @@ import {
   getProjectIdFromGitRemote,
   getGitlabToken,
   needContinueModify,
-  getGitUrl
+  getGitUrl,
+  openUrl
 } from "./util.mjs";
 import GitError from "./error.mjs";
 
@@ -221,6 +222,7 @@ async function createMergeRequest(commitMessage) {
       console.log(
         chalk.green(`创建 Merge Request 成功,地址为: ${data.web_url}`)
       );
+      openUrl(data.web_url)
     }
   } catch (error) {
     console.error(chalk.red(`创建Merge Request失败: ${error.message}`));
