@@ -9,6 +9,7 @@ import chalk from "chalk";
 import storage from "node-persist";
 import os from "os";
 import path from "path";
+import clipboard from "clipboardy";
 import {
   readInput,
   getCurrentBranch,
@@ -17,7 +18,7 @@ import {
   getGitlabToken,
   needContinueModify,
   getGitUrl,
-  openUrl
+  openUrl,
 } from "./util.mjs";
 import GitError from "./error.mjs";
 
@@ -183,7 +184,7 @@ async function cherryPickCommit(commitId, targetBranch) {
   }
 }
 
-async function createMergeRequest(commitMessage) {
+async function createMergeRequest(commitMessage, gitlabMergeRequestsUrl) {
   try {
     const localBranches = getLocalBranches();
     const currentBranch = getCurrentBranch();
@@ -222,7 +223,8 @@ async function createMergeRequest(commitMessage) {
       console.log(
         chalk.green(`创建 Merge Request 成功,地址为: ${data.web_url}`)
       );
-      openUrl(data.web_url)
+      gitlabMergeRequestsUrl.push(data.web_url);
+      openUrl(data.web_url);
     }
   } catch (error) {
     console.error(chalk.red(`创建Merge Request失败: ${error.message}`));
@@ -239,6 +241,7 @@ yargs(hideBin(process.argv))
       const gitpusherDir = path.join(os.homedir(), ".gitpusher");
       await storage.init({ dir: gitpusherDir });
       const currentBranch = getCurrentBranch();
+      const gitlabMergeRequestsUrl = [];
 
       const commitSpinner = ora("开始生成commit").start();
       // 暂停 spinner
@@ -293,7 +296,7 @@ yargs(hideBin(process.argv))
           throw error;
         }
       }
-      await createMergeRequest(commitMessage);
+      await createMergeRequest(commitMessage, gitlabMergeRequestsUrl);
 
       // 同步提交到其他分支
       const commitId = execSync("git rev-parse HEAD").toString().trim();
@@ -349,9 +352,18 @@ yargs(hideBin(process.argv))
             }
           }
           syncCount++;
-          await createMergeRequest(commitMessage);
+          await createMergeRequest(commitMessage, gitlabMergeRequestsUrl);
         } else {
           break;
+        }
+      }
+      if (gitlabMergeRequestsUrl.length) {
+        const concatenatedUrls = gitlabMergeRequestsUrl.join("\n\n");
+        try {
+          clipboard.writeSync(concatenatedUrls);
+          console.log(chalk.green("复制链接成功"));
+        } catch (err) {
+          console.log(chalk.red("复制链接失败", err));
         }
       }
     }
