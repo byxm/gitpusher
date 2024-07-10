@@ -23,9 +23,9 @@ import {
 import GitError from "./error.mjs";
 
 // 生成提交commit
-function generateCommit(message) {
+function generateCommit(message, argv) {
   execSync("git add .");
-  execSync(`git commit -m "${message}"`);
+  execSync(`git commit -m "${message}" ${argv.noVerify ? '--no-verify' : ''}`);
 }
 
 // 合并指定分支到当前分支
@@ -236,8 +236,15 @@ yargs(hideBin(process.argv))
   .command(
     "start",
     "Start a gitpush process",
-    () => {},
-    async () => {
+    (yargs) => {
+      return yargs.option('noVerify', {
+        alias: 'n',
+        type: 'boolean',
+        description: '禁用lint校验',
+        default: false
+      })
+    },
+    async (argv) => {
       const gitpusherDir = path.join(os.homedir(), ".gitpusher");
       await storage.init({ dir: gitpusherDir });
       const currentBranch = getCurrentBranch();
@@ -249,7 +256,7 @@ yargs(hideBin(process.argv))
       const commitMessage = await readInput("请输入commit message: ");
       // 恢复 spinner
       commitSpinner.start();
-      generateCommit(commitMessage);
+      generateCommit(commitMessage, argv);
       commitSpinner.succeed("commit提交生成完成");
 
       const localBranches = getLocalBranches();

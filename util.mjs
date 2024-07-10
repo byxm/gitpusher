@@ -60,18 +60,7 @@ async function getGitlabToken(storage) {
   const oldToken = await storage.getItem("gitlabToken");
 
   if (oldToken) {
-    const useOldToken = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "useOld",
-        message: "是否使用上一次的 GitLab Access Token?",
-        default: true,
-      },
-    ]);
-
-    if (useOldToken.useOld) {
-      return oldToken;
-    }
+    return oldToken;
   }
 
   const newToken = await inquirer.prompt([
