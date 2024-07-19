@@ -25,7 +25,7 @@ import GitError from "./error.mjs";
 // 生成提交commit
 function generateCommit(message, argv) {
   execSync("git add .");
-  execSync(`git commit -m "${message}" ${argv.noVerify ? '--no-verify' : ''}`);
+  execSync(`git commit -m "${message}" ${argv.noVerify ? "--no-verify" : ""}`);
 }
 
 // 合并指定分支到当前分支
@@ -224,7 +224,17 @@ async function createMergeRequest(commitMessage, gitlabMergeRequestsUrl) {
         chalk.green(`创建 Merge Request 成功,地址为: ${data.web_url}`)
       );
       gitlabMergeRequestsUrl.push(data.web_url);
-      openUrl(data.web_url);
+      const { isViewOnBrowser } = await inquirer.prompt([
+        {
+          type: "confirm",
+          name: "isViewOnBrowser",
+          message: "是否打开merge request?",
+          default: false,
+        },
+      ]);
+      if(isViewOnBrowser) {
+        openUrl(data.web_url);
+      }
     }
   } catch (error) {
     console.error(chalk.red(`创建Merge Request失败: ${error.message}`));
@@ -237,12 +247,12 @@ yargs(hideBin(process.argv))
     "start",
     "Start a gitpush process",
     (yargs) => {
-      return yargs.option('noVerify', {
-        alias: 'n',
-        type: 'boolean',
-        description: '禁用lint校验',
-        default: false
-      })
+      return yargs.option("noVerify", {
+        alias: "n",
+        type: "boolean",
+        description: "禁用lint校验",
+        default: false,
+      });
     },
     async (argv) => {
       const gitpusherDir = path.join(os.homedir(), ".gitpusher");

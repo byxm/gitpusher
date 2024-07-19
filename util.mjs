@@ -111,13 +111,13 @@ function openUrl(url) {
   // 根据平台选择对应的命令
   switch (process.platform) {
     case "darwin": // MacOS
-      command = `open "${url}"`;
+      command = `open "${url}/diffs"`;
       break;
     case "win32": // Windows
-      command = `start "${url}"`;
+      command = `start "${url}/diffs"`;
       break;
     case "linux": // Linux
-      command = `xdg-open "${url}"`;
+      command = `xdg-open "${url}/diffs"`;
       break;
     default:
       console.log(`Unsupported platform: ${process.platform}`);
