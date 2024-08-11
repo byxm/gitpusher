@@ -106,29 +106,36 @@ async function needContinueModify() {
 }
 
 function openUrl(url) {
-  let command;
+  const openMethod = (url) => {
+    let command;
 
-  // 根据平台选择对应的命令
-  switch (process.platform) {
-    case "darwin": // MacOS
-      command = `open "${url}/diffs"`;
-      break;
-    case "win32": // Windows
-      command = `start "${url}/diffs"`;
-      break;
-    case "linux": // Linux
-      command = `xdg-open "${url}/diffs"`;
-      break;
-    default:
-      console.log(`Unsupported platform: ${process.platform}`);
-      return;
-  }
+    // 根据平台选择对应的命令
+    switch (process.platform) {
+      case "darwin": // MacOS
+        command = `open "${url}/diffs"`;
+        break;
+      case "win32": // Windows
+        command = `start "${url}/diffs"`;
+        break;
+      case "linux": // Linux
+        command = `xdg-open "${url}/diffs"`;
+        break;
+      default:
+        console.log(`Unsupported platform: ${process.platform}`);
+        return;
+    }
 
-  try {
-    // 执行命令，使用系统默认浏览器打开 URL
-    execSync(command);
-  } catch (err) {
-    console.error(`Error opening URL: ${err}`);
+    try {
+      // 执行命令，使用系统默认浏览器打开 URL
+      execSync(command);
+    } catch (err) {
+      console.error(`Error opening URL: ${err}`);
+    }
+  };
+  if (Array.isArray(url) && url.length) {
+    url.forEach((el) => openMethod(el));
+  } else {
+    openMethod(url);
   }
 }
 

@@ -104,6 +104,88 @@ async function selectBranch(branches, excludeBranch, info = "合并的") {
   }
 }
 
+async function selectAutoBranch(branches, currentBranch) {
+  const autoBranchMap = { cherryBranches: [] };
+  console.log(
+    chalk.yellow(
+      `请选择【${currentBranch}】分支要合并的分支,用于创建commit和第一个MR`
+    )
+  );
+  const selectableBranches = branches.filter(
+    (branch) => branch !== currentBranch
+  );
+  while (true) {
+    selectableBranches.forEach((branch, index) => {
+      console.log(`${index + 1}. ${branch}`);
+    });
+    const selectedIndex = parseInt(await readInput("请输入分支编号:"));
+    if (selectedIndex >= 1 && selectedIndex <= selectableBranches.length) {
+      autoBranchMap.firstMergeBranch = [selectableBranches[selectedIndex - 1]];
+      break;
+    } else {
+      console.log(chalk.red("无效的分支编号,请重新输入!"));
+    }
+  }
+  console.log(chalk.yellow(`开始创建cherry-pick的合并提交`));
+  let needLogBranch = true;
+  while (true) {
+    const lockedBranches = Object.values(autoBranchMap)
+      .reduce((pre, cur) => {
+        cur.push(...pre);
+        return cur;
+      }, [])
+      .flat();
+    const cherryPickBranches = lockedBranches.filter(
+      (branch) => !lockedBranches.includes(branch)
+    );
+    if (needLogBranch) {
+      cherryPickBranches.forEach((branch, index) => {
+        console.log(`${index + 1}. ${branch}`);
+      });
+    }
+
+    const selectedBranchStr = await readInput(
+      "请选择要cherry-pick的分支，以及合并的分支。每一组使用英文逗号分隔，多个组之间使用空格分隔。列如:1,3 2,4："
+    );
+    if (
+      /^((?!.*(\d+),\2\b)(\b\d+\b),(\b\d+\b))( ((?!.*(\d+),\7\b)(\b\d+\b),(\b\d+\b)))*$/.test(
+        selectedBranchStr
+      )
+    ) {
+      const inputBranchs = selectedBranchStr.split(" ");
+      const isInBranchRange = inputBranchs.every((brStr) => {
+        const [cpBr, mergeBr] = brStr.split(",");
+        return (
+          1 <= parseInt(cpBr) <= cherryPickBranches.length + 1 &&
+          1 <= parseInt(mergeBr) <= cherryPickBranches.length + 1
+        );
+      });
+      if (isInBranchRange) {
+        inputBranchs.forEach((brGroup) => {
+          const [cpOneBr, mrTwoBr] = brGroup.split(",");
+          autoBranchMap.cherryBranches.push([
+            selectableBranches[parseInt(cpOneBr) - 1],
+            selectableBranches[parseInt(mrTwoBr) - 1],
+          ]);
+        });
+        return autoBranchMap;
+      } else {
+        console.log(
+          chalk.red(
+            `${selectedBranchStr}分支不在当前可选分支范围内，请重新选择`
+          )
+        );
+        needLogBranch = false;
+        continue;
+      }
+    } else {
+      console.log(chalk.red("输入的分支格式不合法，请重新输入!"));
+      needLogBranch = false;
+      continue;
+    }
+  }
+}
+
 // 推送当前分支到远程仓库
 function pushBranch(branch) {
   execSync(`git push origin ${branch}`);
@@ -184,25 +266,40 @@ async function cherryPickCommit(commitId, targetBranch) {
   }
 }
 
-async function createMergeRequest(commitMessage, gitlabMergeRequestsUrl) {
+async function createMergeRequest(
+  commitMessage,
+  gitlabMergeRequestsUrl,
+  { isAuto, mergeBranch }
+) {
   try {
     const localBranches = getLocalBranches();
     const currentBranch = getCurrentBranch();
-    const shouldCreateMR = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "createMR",
-        message: "是否需要创建 Merge Request?",
-        default: false,
-      },
-    ]);
-    if (shouldCreateMR.createMR) {
+    let shouldCreateMR = {};
+    if (!isAuto) {
+      shouldCreateMR = await inquirer.prompt([
+        {
+          type: "confirm",
+          name: "createMR",
+          message: "是否需要创建 Merge Request?",
+          default: false,
+        },
+      ]);
+    }
+
+    if (isAuto || shouldCreateMR.createMR) {
+      console.log(chalk.green("开始创建Merge Request"));
       // 创建 Merge Request 的逻辑
-      const targetBranch = await selectBranch(
-        localBranches,
-        currentBranch,
-        "合并到"
-      );
+      let targetBranch = "";
+      if (!isAuto) {
+        targetBranch = await selectBranch(
+          localBranches,
+          currentBranch,
+          "合并到"
+        );
+      } else {
+        targetBranch = mergeBranch;
+      }
+
       const projectId = getProjectIdFromGitRemote();
       const accessToken = await getGitlabToken(storage);
       const gitUrl = getGitUrl();
@@ -224,16 +321,18 @@ async function createMergeRequest(commitMessage, gitlabMergeRequestsUrl) {
         chalk.green(`创建 Merge Request 成功,地址为: ${data.web_url}`)
       );
       gitlabMergeRequestsUrl.push(data.web_url);
-      const { isViewOnBrowser } = await inquirer.prompt([
-        {
-          type: "confirm",
-          name: "isViewOnBrowser",
-          message: "是否打开merge request?",
-          default: false,
-        },
-      ]);
-      if(isViewOnBrowser) {
-        openUrl(data.web_url);
+      if (!isAuto) {
+        const { isViewOnBrowser } = await inquirer.prompt([
+          {
+            type: "confirm",
+            name: "isViewOnBrowser",
+            message: "是否打开merge request?",
+            default: false,
+          },
+        ]);
+        if (isViewOnBrowser) {
+          openUrl(data.web_url);
+        }
       }
     }
   } catch (error) {
@@ -242,23 +341,123 @@ async function createMergeRequest(commitMessage, gitlabMergeRequestsUrl) {
   }
 }
 
+const createAndPushFirstCommit = async ({
+  selectedBranch,
+  currentBranch,
+  commitMessage,
+  gitlabMergeRequestsUrl,
+  isAuto,
+  firstMergeBranch,
+}) => {
+  try {
+    await mergeBranch(selectedBranch);
+    console.log(
+      chalk.green(`合并${selectedBranch}成功,推送代码到${currentBranch}`)
+    );
+  } catch (error) {
+    if (
+      error.message.includes("CONFLICT") ||
+      error.message.includes("conflicts")
+    ) {
+      const gitError = new GitError("MergeConflict", error.message);
+      await gitError.handle(selectedBranch);
+    } else {
+      throw error;
+    }
+  }
+
+  const pushSpinner = ora(`推送代码到${currentBranch}`).start();
+  try {
+    pushBranch(currentBranch);
+    pushSpinner.succeed("推送完成");
+    pushSpinner.stop();
+  } catch (error) {
+    if (
+      error.message.includes("rejected") &&
+      error.message.includes("non-fast-forward")
+    ) {
+      const gitError = new GitError("PushFast", error.message);
+      await gitError.handle(currentBranch);
+      pushSpinner.stop();
+    } else {
+      console.error(
+        chalk.red(`推送代码到${currentBranch}失败: ${error.message}`)
+      );
+      pushSpinner.fail("推送失败");
+      throw error;
+    }
+  }
+  await createMergeRequest(commitMessage, gitlabMergeRequestsUrl, {
+    isAuto,
+    mergeBranch: firstMergeBranch,
+  });
+  return execSync("git rev-parse HEAD").toString().trim();
+};
+
+
+// 推送当前分支并创建MR 
+const pushCurrentBranchAndCreateMR = async (commitMessage, gitlabMergeRequestsUrl, options = {}) => {
+  const currentCheckoutBranch = getCurrentBranch();
+  // commit同步完成后提交代码
+  const syncPushpushSpinner = ora(
+    `推送代码到${currentCheckoutBranch}`
+  ).start();
+  try {
+    pushBranch(currentCheckoutBranch);
+    syncPushpushSpinner.succeed("推送完成");
+    syncPushpushSpinner.stop();
+  } catch (error) {
+    if (
+      error.message.includes("rejected") &&
+      error.message.includes("non-fast-forward")
+    ) {
+      const gitError = new GitError("PushFast", error.message);
+      await gitError.handle(currentCheckoutBranch);
+      syncPushpushSpinner.stop();
+    } else {
+      console.error(
+        chalk.red(`推送代码失败到${currentCheckoutBranch}失败`)
+      );
+      syncPushpushSpinner.fail("推送失败");
+      throw error;
+    }
+  }
+  await createMergeRequest(commitMessage, gitlabMergeRequestsUrl, options);
+}
+
 yargs(hideBin(process.argv))
   .command(
     "start",
     "Start a gitpush process",
     (yargs) => {
-      return yargs.option("noVerify", {
-        alias: "n",
-        type: "boolean",
-        description: "禁用lint校验",
-        default: false,
-      });
+      return yargs
+        .option("noVerify", {
+          alias: "n",
+          type: "boolean",
+          description: "禁用lint校验",
+          default: false,
+        })
+        .option("auto", {
+          alias: "a",
+          type: "boolean",
+          description: "自动创建提交",
+          default: false,
+        });
     },
     async (argv) => {
       const gitpusherDir = path.join(os.homedir(), ".gitpusher");
       await storage.init({ dir: gitpusherDir });
       const currentBranch = getCurrentBranch();
       const gitlabMergeRequestsUrl = [];
+      const localBranches = getLocalBranches();
+
+      let autoBranchMap = null;
+      if (argv.auto) {
+        console.log(
+          chalk.green("开始自动创建合并提交，请按照步骤填写以下参数")
+        );
+        autoBranchMap = await selectAutoBranch(localBranches, currentBranch);
+      }
 
       const commitSpinner = ora("开始生成commit").start();
       // 暂停 spinner
@@ -269,111 +468,69 @@ yargs(hideBin(process.argv))
       generateCommit(commitMessage, argv);
       commitSpinner.succeed("commit提交生成完成");
 
-      const localBranches = getLocalBranches();
-      const selectedBranch = await selectBranch(localBranches);
+      const selectedBranch = argv.auto
+        ? autoBranchMap.firstMergeBranch[0]
+        : await selectBranch(localBranches);
       console.log(
         chalk.yellow(`开始合并${selectedBranch}代码到${currentBranch}`)
       );
 
-      try {
-        await mergeBranch(selectedBranch);
-        console.log(
-          chalk.green(`合并${selectedBranch}成功,推送代码到${currentBranch}`)
-        );
-      } catch (error) {
-        if (
-          error.message.includes("CONFLICT") ||
-          error.message.includes("conflicts")
-        ) {
-          const gitError = new GitError("MergeConflict", error.message);
-          await gitError.handle(selectedBranch);
-        } else {
-          throw error;
-        }
-      }
+      // 创建第一个mergeRequest，并返回commitId
+      const commitId = await createAndPushFirstCommit({
+        currentBranch,
+        selectedBranch,
+        commitMessage,
+        gitlabMergeRequestsUrl,
+        isAuto: argv.auto,
+        firstMergeBranch: autoBranchMap?.firstMergeBranch?.[0],
+      });
 
-      const pushSpinner = ora(`推送代码到${currentBranch}`).start();
-      try {
-        pushBranch(currentBranch);
-        pushSpinner.succeed("推送完成");
-        pushSpinner.stop();
-      } catch (error) {
-        if (
-          error.message.includes("rejected") &&
-          error.message.includes("non-fast-forward")
-        ) {
-          const gitError = new GitError("PushFast", error.message);
-          await gitError.handle(currentBranch);
-          pushSpinner.stop();
-        } else {
-          console.error(
-            chalk.red(`推送代码到${currentBranch}失败: ${error.message}`)
-          );
-          pushSpinner.fail("推送失败");
-          throw error;
-        }
-      }
-      await createMergeRequest(commitMessage, gitlabMergeRequestsUrl);
-
-      // 同步提交到其他分支
-      const commitId = execSync("git rev-parse HEAD").toString().trim();
       let syncCount = 0;
-      while (true) {
-        const { shouldSync } = await inquirer.prompt([
-          {
-            type: "confirm",
-            name: "shouldSync",
-            message:
-              syncCount === 0
-                ? "是否将此次提交同步到其他分支?"
-                : "是否继续同步此次提交到其他分支?",
-            default: false,
-          },
-        ]);
-        if (shouldSync) {
-          await syncCommit(currentBranch, commitId);
-          const { needModify } = await inquirer.prompt([
+      if (argv.auto) {
+        const { cherryBranches } = autoBranchMap;
+        for (const [syncBranch, syncMergeBranch] of cherryBranches) {
+            await checkoutBranch(syncBranch);
+            await mergeBranch(syncMergeBranch);
+            await cherryPickCommit(commitId, syncBranch);
+            console.log(
+              chalk.green(`已将 commit ${commitId} 同步到 ${syncBranch} 分支`)
+            );
+            await pushCurrentBranchAndCreateMR(commitMessage, gitlabMergeRequestsUrl, { isAuto: true, mergeBranch: syncMergeBranch });
+        }
+        openUrl(gitlabMergeRequestsUrl)
+      } else {
+        while (true) {
+          const { shouldSync } = await inquirer.prompt([
             {
               type: "confirm",
-              name: "needModify",
-              message: "是否需要继续修改其他文件?",
+              name: "shouldSync",
+              message:
+                syncCount === 0
+                  ? "是否将此次提交同步到其他分支?"
+                  : "是否继续同步此次提交到其他分支?",
               default: false,
             },
           ]);
-          if (needModify) {
-            await needContinueModify();
-          }
-          const currentCheckoutBranch = getCurrentBranch();
-          // commit同步完成后提交代码
-          const syncPushpushSpinner = ora(
-            `推送代码到${currentCheckoutBranch}`
-          ).start();
-          try {
-            pushBranch(currentCheckoutBranch);
-            syncPushpushSpinner.succeed("推送完成");
-            syncPushpushSpinner.stop();
-          } catch (error) {
-            if (
-              error.message.includes("rejected") &&
-              error.message.includes("non-fast-forward")
-            ) {
-              const gitError = new GitError("PushFast", error.message);
-              await gitError.handle(currentCheckoutBranch);
-              syncPushpushSpinner.stop();
-            } else {
-              console.error(
-                chalk.red(`推送代码失败到${currentCheckoutBranch}失败`)
-              );
-              syncPushpushSpinner.fail("推送失败");
-              throw error;
+          if (shouldSync) {
+            await syncCommit(currentBranch, commitId);
+            const { needModify } = await inquirer.prompt([
+              {
+                type: "confirm",
+                name: "needModify",
+                message: "是否需要继续修改其他文件?",
+                default: false,
+              },
+            ]);
+            if (needModify) {
+              await needContinueModify();
             }
+            await pushCurrentBranchAndCreateMR(commitMessage, gitlabMergeRequestsUrl);
+          } else {
+            break;
           }
-          syncCount++;
-          await createMergeRequest(commitMessage, gitlabMergeRequestsUrl);
-        } else {
-          break;
         }
       }
+
       if (gitlabMergeRequestsUrl.length) {
         const concatenatedUrls = gitlabMergeRequestsUrl.join("\n\n");
         try {
