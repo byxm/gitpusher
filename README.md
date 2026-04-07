@@ -22,6 +22,13 @@ npm link
 gs start
 ```
 
+自动模式：
+
+```bash
+gs start --auto
+gs start -a
+```
+
 ## 使用前提
 
 - 业务仓库使用 GitLab，并支持 `git push -o merge_request.create`
@@ -55,19 +62,48 @@ test_bugfix/cpy-test
 
 - 主分支：`dev`
 - bugfix 分支：`dev_bugfix/<name>`
+- feature 分支：`dev_feature/<name>`
 
 示例：
 
 ```bash
 dev_bugfix/cpy-dev
+dev_feature/login-page
 ```
 
 识别规则：
 
 - 如果当前分支是 `dev`
 - 或者当前分支以 `dev_bugfix/` 开头
+- 或者当前分支以 `dev_feature/` 开头
 
 则工具会认为首个 MR 目标分支是 `dev`。
+
+### 其它普通分支
+
+除了以下分支会被优先识别：
+
+- `hotfix/*`
+- `release/*`
+- `dev`
+- `dev_bugfix/*`
+- `dev_feature/*`
+
+其余所有分支都会默认按 `test` 处理。
+
+例如：
+
+```bash
+feature/login
+bugfix/header-style
+cpy-test-0421
+```
+
+以上这类分支，首个 MR 目标分支都会默认推断为：
+
+```bash
+test
+```
 
 ### `hotfix` 系列
 
@@ -127,6 +163,7 @@ release/5.30-release_20260330_xxx
 
 - `test`
 - `test_bugfix/*`
+- 其它所有非 `hotfix/release/dev` 系列的普通分支
 
 则：
 
@@ -139,6 +176,7 @@ release/5.30-release_20260330_xxx
 
 - `dev`
 - `dev_bugfix/*`
+- `dev_feature/*`
 
 则：
 
@@ -209,7 +247,7 @@ release/<version>-release_<yyyymmdd>
 
 1. 输入 commit message
 2. 自动识别首个 MR 目标分支和后续 cherry-pick 目标分支
-3. 展示自动结果，并允许你手动增删分支
+3. 默认展示自动结果，并允许你手动增删分支
 4. 将目标主分支代码合并到当前工作分支
 5. 生成 commit 并推送
 6. 通过 `git push` 的 GitLab push options 创建 MR
@@ -217,6 +255,12 @@ release/<version>-release_<yyyymmdd>
 8. 打印并复制 MR 链接
 9. 打开所有已解析到的 MR 页面
 10. 等待你确认这些 MR 已合并，再删除临时分支
+
+如果传了 `--auto` 或 `-a`：
+
+- 会跳过第 3 步的人工确认
+- 直接采用自动推断结果继续执行
+- 但最后“MR 已合并后删除临时分支”的确认仍然保留
 
 ## 最终确认与手动调整
 

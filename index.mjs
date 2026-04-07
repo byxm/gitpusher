@@ -254,6 +254,12 @@ function printBranchPlan(plan) {
   });
 }
 
+function ensureAutoBranchPlan(plan) {
+  if (!plan.firstMergeBranch) {
+    throw new Error("自动模式下未能识别首个 MR 目标分支，请关闭 --auto 后手动确认");
+  }
+}
+
 async function selectValidBranch(prompt, availableBranches) {
   while (true) {
     const branch = (await readInput(prompt)).trim();
@@ -510,7 +516,7 @@ yargs(hideBin(process.argv))
         .option("auto", {
           alias: "a",
           type: "boolean",
-          description: "保留兼容参数，当前流程默认自动识别分支",
+          description: "自动接受分支推断结果并直接执行",
           default: false,
         });
     },
@@ -526,8 +532,18 @@ yargs(hideBin(process.argv))
 
       const allBranches = getAllBranches();
       const autoBranchPlan = getAutoBranchPlan(currentBranch, allBranches);
-      console.log(chalk.green("开始自动识别目标分支"));
-      const confirmedPlan = await confirmAutoBranchPlan(autoBranchPlan);
+      let confirmedPlan;
+      if (argv.auto) {
+        console.log(
+          chalk.green("开始自动识别目标分支，已启用 --auto，将跳过人工确认")
+        );
+        ensureAutoBranchPlan(autoBranchPlan);
+        printBranchPlan(autoBranchPlan);
+        confirmedPlan = autoBranchPlan;
+      } else {
+        console.log(chalk.green("开始自动识别目标分支"));
+        confirmedPlan = await confirmAutoBranchPlan(autoBranchPlan);
+      }
 
       console.log(
         chalk.yellow(

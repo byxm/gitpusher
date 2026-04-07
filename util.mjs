@@ -84,14 +84,6 @@ function compareVersions(versionA, versionB) {
 }
 
 function parseBranchContext(branch) {
-  if (branch === "test" || branch.startsWith("test_bugfix/")) {
-    return { type: "test", principalBranch: "test" };
-  }
-
-  if (branch === "dev" || branch.startsWith("dev_bugfix/")) {
-    return { type: "dev", principalBranch: "dev" };
-  }
-
   const hotfixMatch = branch.match(HOTFIX_MAIN_BRANCH_REGEXP);
   if (hotfixMatch) {
     const [, version, date] = hotfixMatch;
@@ -114,7 +106,15 @@ function parseBranchContext(branch) {
     };
   }
 
-  return { type: "unknown", principalBranch: null };
+  if (
+    branch === "dev" ||
+    branch.startsWith("dev_bugfix/") ||
+    branch.startsWith("dev_feature/")
+  ) {
+    return { type: "dev", principalBranch: "dev" };
+  }
+
+  return { type: "test", principalBranch: "test" };
 }
 
 function getBranchMetadata(branch) {
