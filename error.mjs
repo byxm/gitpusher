@@ -35,6 +35,9 @@ class GitError extends Error {
       case "MergeConflict":
         await this.handleMergeConflict(branch);
         break;
+      case "PullConflict":
+        await this.handleMergeConflict(branch);
+        break;
       case "PushFast":
         await this.handlePushFast(branch);
         break;
@@ -61,9 +64,17 @@ class GitError extends Error {
     while (!isContinue) {
       const input = await readInput(chalk.cyan("gitpush> "));
       if (input === "continue") {
-        isContinue = true;
-        await mergeBranch(branch);
-        console.log(chalk.green(`合并${branch}成功`));
+        try {
+          process.env.GIT_EDITOR = "true";
+          execSync("git add .");
+          execSync("git merge --continue");
+          process.env.GIT_EDITOR = "false";
+          isContinue = true;
+          console.log(chalk.green(`合并${branch}成功`));
+        } catch (error) {
+          process.env.GIT_EDITOR = "false";
+          console.error(chalk.red("合并继续失败,请重新检查冲突:"), error.message);
+        }
       } else if (input === "abort") {
         console.log(chalk.yellow("退出合并,请手动处理冲突"));
         process.exit(1);

@@ -1,7 +1,16 @@
 import readline from "readline";
 import chalk from "chalk";
 import { execSync } from "child_process";
-import inquirer from "inquirer";
+
+const HOTFIX_MAIN_BRANCH_REGEXP =
+  /^hotfix\/(\d+(?:\.\d+)*)-hotfix_(\d{8})(?:$|[-_].+)?$/;
+const HOTFIX_PRINCIPAL_BRANCH_REGEXP =
+  /^hotfix\/(\d+(?:\.\d+)*)-hotfix_(\d{8})$/;
+const RELEASE_MAIN_BRANCH_REGEXP =
+  /^release\/(\d+(?:\.\d+)*)-release_(\d{8})(?:$|[-_].+)?$/;
+const RELEASE_PRINCIPAL_BRANCH_REGEXP =
+  /^release\/(\d+(?:\.\d+)*)-release_(\d{8})$/;
+
 // 读取用户输入
 function readInput(question) {
   const rl = readline.createInterface({
@@ -32,47 +41,184 @@ function getLocalBranches() {
     .map((branch) => branch.replace("* ", ""));
 }
 
-function getProjectIdFromGitRemote() {
-  const remoteUrl = execSync("git remote get-url origin").toString().trim();
-  const match = remoteUrl.match(/(?<=:)[^\/]+(?:\/[^\/]+)*(?=\.git)/);
-
-  if (match && match[0]) {
-    return encodeURIComponent(match[0]);
-  } else {
-    throw new Error(
-      "无法从远程仓库 URL 提取 projectId，请手动创建merge request"
-    );
-  }
+function getAllBranches() {
+  return execSync("git branch --all --format='%(refname:short)'")
+    .toString()
+    .split("\n")
+    .map((branch) => branch.trim())
+    .filter((branch) => branch !== "" && !branch.includes("HEAD ->"))
+    .map(normalizeBranchName)
+    .filter((branch) => branch !== "");
 }
 
-function getGitUrl() {
-  const remoteUrl = execSync("git remote get-url origin").toString().trim();
-  const match = remoteUrl.match(/(?:github\.com|gitlab\.[\w-]+(?:\.[\w-]+)*)/);
-
-  if (match && match[0]) {
-    return match[0];
-  } else {
-    throw new Error("无法从远程仓库 URL 提取 git url，请手动创建merge request");
+function normalizeBranchName(branch) {
+  if (branch.startsWith("origin/")) {
+    return branch.replace(/^origin\//, "");
   }
+
+  if (branch.startsWith("remotes/origin/")) {
+    return branch.replace(/^remotes\/origin\//, "");
+  }
+
+  return branch;
 }
 
-async function getGitlabToken(storage) {
-  const oldToken = await storage.getItem("gitlabToken");
+function getUniqueBranches(branches) {
+  return [...new Set(branches.map(normalizeBranchName))];
+}
 
-  if (oldToken) {
-    return oldToken;
+function compareVersions(versionA, versionB) {
+  const segmentsA = versionA.split(".").map((segment) => parseInt(segment, 10));
+  const segmentsB = versionB.split(".").map((segment) => parseInt(segment, 10));
+  const maxLength = Math.max(segmentsA.length, segmentsB.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const currentA = segmentsA[index] ?? 0;
+    const currentB = segmentsB[index] ?? 0;
+    if (currentA !== currentB) {
+      return currentA - currentB;
+    }
   }
 
-  const newToken = await inquirer.prompt([
-    {
-      type: "password",
-      name: "token",
-      message: "请输入 GitLab Access Token:",
-    },
-  ]);
+  return 0;
+}
 
-  await storage.setItem("gitlabToken", newToken.token);
-  return newToken.token;
+function parseBranchContext(branch) {
+  if (branch === "test" || branch.startsWith("test_bugfix/")) {
+    return { type: "test", principalBranch: "test" };
+  }
+
+  if (branch === "dev" || branch.startsWith("dev_bugfix/")) {
+    return { type: "dev", principalBranch: "dev" };
+  }
+
+  const hotfixMatch = branch.match(HOTFIX_MAIN_BRANCH_REGEXP);
+  if (hotfixMatch) {
+    const [, version, date] = hotfixMatch;
+    return {
+      type: "hotfix",
+      principalBranch: `hotfix/${version}-hotfix_${date}`,
+      version,
+      date,
+    };
+  }
+
+  const releaseMatch = branch.match(RELEASE_MAIN_BRANCH_REGEXP);
+  if (releaseMatch) {
+    const [, version, date] = releaseMatch;
+    return {
+      type: "release",
+      principalBranch: `release/${version}-release_${date}`,
+      version,
+      date,
+    };
+  }
+
+  return { type: "unknown", principalBranch: null };
+}
+
+function getBranchMetadata(branch) {
+  if (branch === "test") {
+    return { type: "test", branch, principalBranch: "test" };
+  }
+
+  if (branch === "dev") {
+    return { type: "dev", branch, principalBranch: "dev" };
+  }
+
+  const hotfixMatch = branch.match(HOTFIX_PRINCIPAL_BRANCH_REGEXP);
+  if (hotfixMatch) {
+    const [, version, date] = hotfixMatch;
+    return {
+      type: "hotfix",
+      branch,
+      principalBranch: branch,
+      version,
+      date,
+    };
+  }
+
+  const releaseMatch = branch.match(RELEASE_PRINCIPAL_BRANCH_REGEXP);
+  if (releaseMatch) {
+    const [, version, date] = releaseMatch;
+    return {
+      type: "release",
+      branch,
+      principalBranch: branch,
+      version,
+      date,
+    };
+  }
+
+  return null;
+}
+
+function getPrincipalBranches(branches) {
+  return getUniqueBranches(branches)
+    .map(getBranchMetadata)
+    .filter(Boolean);
+}
+
+function getAutoBranchPlan(currentBranch, branches) {
+  const currentContext = parseBranchContext(currentBranch);
+  const principalBranches = getPrincipalBranches(branches);
+  let firstMergeBranch = currentContext.principalBranch;
+  let cherryPickBranches = [];
+
+  switch (currentContext.type) {
+    case "test": {
+      const latestRelease = principalBranches
+        .filter((branch) => branch.type === "release")
+        .sort((branchA, branchB) => {
+          const versionCompare = compareVersions(
+            branchB.version,
+            branchA.version
+          );
+          if (versionCompare !== 0) {
+            return versionCompare;
+          }
+
+          return branchB.date.localeCompare(branchA.date);
+        })[0];
+      cherryPickBranches = latestRelease ? [latestRelease.branch] : [];
+      break;
+    }
+    case "dev":
+      cherryPickBranches = [];
+      break;
+    case "hotfix":
+      cherryPickBranches = principalBranches
+        .filter(
+          (branch) =>
+            branch.type === "hotfix" &&
+            compareVersions(branch.version, currentContext.version) > 0
+        )
+        .sort((branchA, branchB) =>
+          compareVersions(branchA.version, branchB.version)
+        )
+        .map((branch) => branch.branch);
+      if (principalBranches.some((branch) => branch.branch === "test")) {
+        cherryPickBranches.push("test");
+      }
+      break;
+    case "release":
+      if (principalBranches.some((branch) => branch.branch === "test")) {
+        cherryPickBranches = ["test"];
+      }
+      break;
+    default:
+      firstMergeBranch = null;
+      cherryPickBranches = [];
+  }
+
+  return {
+    currentContext,
+    availableBranches: getUniqueBranches(branches),
+    firstMergeBranch,
+    cherryPickBranches: getUniqueBranches(
+      cherryPickBranches.filter((branch) => branch !== firstMergeBranch)
+    ),
+  };
 }
 
 // 继续修改文件并合并到当次提交
@@ -140,12 +286,17 @@ function openUrl(url) {
 }
 
 export {
+  compareVersions,
+  getAllBranches,
+  getAutoBranchPlan,
+  getBranchMetadata,
   readInput,
   getCurrentBranch,
   getLocalBranches,
-  getProjectIdFromGitRemote,
-  getGitlabToken,
+  getPrincipalBranches,
+  getUniqueBranches,
+  normalizeBranchName,
   needContinueModify,
-  getGitUrl,
+  parseBranchContext,
   openUrl,
 };
