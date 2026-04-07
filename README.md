@@ -168,7 +168,8 @@ release/5.30-release_20260330_xxx
 则：
 
 - 首个 MR 目标分支：`test`
-- 后续 cherry-pick 目标分支：仓库内版本最新的 `release/*` 主分支
+- 不自动追加 cherry-pick 目标分支
+- 如果需要继续同步到其他分支，由用户在确认环节手动追加
 
 ### 从 `dev` 系列分支发起
 
@@ -365,7 +366,8 @@ test_bugfix/login-fix
 自动结果：
 
 - 首个 MR：`test`
-- 后续 cherry-pick：最新的 `release/*`
+- 不自动追加 cherry-pick
+- 如果需要继续同步到其他分支，请在确认环节手动输入
 
 ### 场景 2：从 `hotfix` 个人分支提交
 

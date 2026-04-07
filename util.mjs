@@ -166,23 +166,9 @@ function getAutoBranchPlan(currentBranch, branches) {
   let cherryPickBranches = [];
 
   switch (currentContext.type) {
-    case "test": {
-      const latestRelease = principalBranches
-        .filter((branch) => branch.type === "release")
-        .sort((branchA, branchB) => {
-          const versionCompare = compareVersions(
-            branchB.version,
-            branchA.version
-          );
-          if (versionCompare !== 0) {
-            return versionCompare;
-          }
-
-          return branchB.date.localeCompare(branchA.date);
-        })[0];
-      cherryPickBranches = latestRelease ? [latestRelease.branch] : [];
+    case "test":
+      cherryPickBranches = [];
       break;
-    }
     case "dev":
       cherryPickBranches = [];
       break;
